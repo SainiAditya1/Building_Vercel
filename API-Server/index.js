@@ -1,6 +1,10 @@
 const express= require('express');
 const { generateSlug } = require('random-word-slugs');
 const {ECSClient, RunTaskCommand }= require('@aws-sdk/client-ecs');
+const {Server} = require('socket.io')
+const Redis = require('ioredis');
+
+
 
 require('dotenv').config();
 
@@ -8,6 +12,21 @@ require('dotenv').config();
 
 const app = express();
 const PORT = 9000;
+
+const subscriber = new Redis('rediss://default:AVNS_HJFZIQA-2-M_6IcFoz9@redis-19284222-adityasaini10012001-b0a8.a.aivencloud.com:11354')
+
+const io = new Server({ cors: '*'})
+
+io.on('connection', socket => {
+    socket.on('subscribe', channel => {
+        socket.join(channel)
+        socket.emit('message', `Joined ${channel}`)
+
+    })
+})
+
+io.listen(9002, ()=> console.log('Socket Server 9002'))
+
 
 const ecsClient = new ECSClient({
     region:'us-east-1',
@@ -29,9 +48,9 @@ const config = {
 
 app.use(express.json());
 app.post('/project', async(req,res)=> {
-    const { gitURL } = req.body;
+    const { gitURL, slug } = req.body;
     // console.log(gitURL)
-    const projectSlug = generateSlug();
+    const projectSlug = slug ?slug : generateSlug();
 
     // spin the container
     const command = new RunTaskCommand({
@@ -75,6 +94,19 @@ app.post('/project', async(req,res)=> {
 
 
 });
+
+async function initRedisSubscribe() {
+    console.log('Subscribed to logs....')
+    subscriber.psubscribe('logs:*')
+    subscriber.on('pmessage', (pattern, channel, message)=> {
+        io.to(channel).emit('message',message)
+    })
+
+}
+
+initRedisSubscribe()
+
+
 
 app.listen(PORT, ()=> {
     console.log(`api server is running on ... ${PORT}`);
